@@ -231,7 +231,7 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
     antenna_length = np.linspace(1, 4, 11)
     Look_angle, Ant_l = np.meshgrid(looking_angle, antenna_length)
     C_min = np.zeros_like(Look_angle)
-    opti.swath = 25 # km ## todo make this parametric
+    opti.swath = 25  # km ## todo make this parametric
     # ACTUAL SWEEP
     for cc in tqdm(range(len(looking_angle))):
         # set looking angle
@@ -246,7 +246,7 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
 
     # %% system losses and powa normalization
     # sweep for diferent resolutions
-    #Ares = np.array([1, 3, 5, 7])
+    # Ares = np.array([1, 3, 5, 7])
     Ares = np.array([2])
     NESZ_min = 10 ** ((18 / 5 - 8 / 5 * Ares) / 10)
     # params
@@ -255,7 +255,8 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
     for ii in tqdm(range(len(Ares))):
         print("Ares = ", Ares[ii])
         PoverB = Loss * T_ant / (NESZ_min[ii] * C_min)
-        B = opti.c_light * Ant_l / (4 * Ares[ii] * np.sin(Look_angle * np.pi / 180)) # todo use here incidence angle instead of looking angle
+        B = opti.c_light * Ant_l / (4 * Ares[ii] * np.sin(
+            Look_angle * np.pi / 180))  # todo use here incidence angle instead of looking angle
         P = PoverB * B
         # %% plotting
         fig1, ax = plt.subplots(1)
@@ -272,8 +273,88 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
         ax.grid()
 
 
+def model_param(NESZ_min, Ares, Wg, La, looking_angle, L=10, Tant=300):
+    """
+
+    :param NESZ_min:
+    :param Ares:
+    :param Wg:
+    :param La:
+    :param looking_angle:
+    :param L:
+    :param Tant:
+    :return:
+    """
+
+    # sweeps over possible looking angles and antenna lengths, given a fixed antenna width
+    # %% initial conditions
+    la = 2
+    wa = .3
+    antenna = UniformAperture(la, wa)
+    # wavelength
+    f = 10e9
+    c = 299792458.0
+    wavel = c / f
+    # create a radar geometry
+    radGeo = RadarGeometry()
+    #   looking angle deg
+    side_looking_angle = 30  # degrees
+    radGeo.set_rotation(side_looking_angle / 180 * np.pi, 0, 0)
+    #   altitude
+    altitude = 500e3  # m
+    radGeo.set_initial_position(0, 0, altitude)
+    #   speed
+    radGeo.set_speed(radGeo.orbital_speed())
+
+    # problem creation
+    opti = RangeOptimizationProblem(radGeo, antenna, wavel)
+
+    # %% physical parameters sweep
+    looking_angle = np.linspace(30, 40, 2)
+    antenna_length = np.linspace(1, 4, 11)
+    Look_angle, Ant_l = np.meshgrid(looking_angle, antenna_length)
+    C_min = np.zeros_like(Look_angle)
+    opti.swath = Wg  # km
+    # ACTUAL SWEEP
+    for cc in tqdm(range(len(looking_angle))):
+        # set looking angle
+        opti.radarGeo.set_rotation(looking_angle[cc] * np.pi / 180, 0, 0)
+        for rr in tqdm(range(len(antenna_length))):
+            # set antenna length
+            opti.aperture.set_length(antenna_length[rr])
+            # get minimum power over bandwidth
+            opti.optimize()
+            # get core snr
+            C_min[rr, cc] = np.average(opti.snr_core_edge)
+
+    # %% system losses and powa normalization
+    # params
+    Loss = 10 ** (L / 10)  # F + Lsys
+    T_ant = 300
+
+    print("Ares = ", Ares)
+    PoverB = Loss * T_ant / (NESZ_min * C_min)
+    B = opti.c_light * Ant_l / (4 * Ares * np.sin(
+        Look_angle * np.pi / 180))  # todo use here incidence angle instead of looking angle
+    P = PoverB * B
+    # # %% plotting todo change this to a return
+    # fig1, ax = plt.subplots(1)
+    # plt.title(str("Ares = ") + str(Ares))
+    # ax2 = ax.twinx()
+    # for jj in range(len(looking_angle)):
+    #     ax.plot(antenna_length, P[:, jj], label='theta = ' + str(looking_angle[jj]))
+    #     ax2.plot(antenna_length, B[:, jj] / 1e6, '--', label='theta = ' + str(looking_angle[jj]))
+    # ax.legend()
+    # ax.set_xlabel('antenna length [m]')
+    # ax.set_ylabel('P_min [W]  _____')
+    # ax2.set_ylabel('B [MHz] - - - -')
+    # ax.grid()
+    # ax.grid()
+
+
 if __name__ == '__main__':
     # sweep_res_nesz()
     better_sweep()
-    #tested sphere in coresnr
+    a = input()
+    # tested sphere in coresnr
     # todo use incidence angle in bandwidth calculations
