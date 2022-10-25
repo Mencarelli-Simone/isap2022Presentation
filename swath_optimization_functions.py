@@ -231,7 +231,7 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
     antenna_length = np.linspace(1, 4, 11)
     Look_angle, Ant_l = np.meshgrid(looking_angle, antenna_length)
     C_min = np.zeros_like(Look_angle)
-    opti.swath = 25addee3 ## todo make this parametric
+    opti.swath = 25 # km ## todo make this parametric
     # ACTUAL SWEEP
     for cc in tqdm(range(len(looking_angle))):
         # set looking angle
