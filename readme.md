@@ -5,4 +5,6 @@
 4. Antenna length vs power trade-off for different swath widths.
 
 # Scripts index
-antenna lenght vs power: al_vs_p
+trade off analysis: al_vs_p.ipynb
+normalized SNR taper: 
+

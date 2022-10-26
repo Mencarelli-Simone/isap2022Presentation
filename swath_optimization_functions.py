@@ -14,7 +14,6 @@ from spherical_earth_geometry_radar import *
 from farField import UniformAperture, Aperture
 from utils import *
 
-from spherical_earth_geometry_radar import core_snr_spherical
 from design_functions import *
 
 
@@ -42,11 +41,13 @@ def core_SNR(radarGeo: RadarGeometry, aperture: UniformAperture, ground_range, w
     """
     if ifsphere:
         ## find incidence axis:
+        # print('ground range =', ground_range)
         alpha = -ground_range / re
         # slant range
         r = np.sqrt((re * np.sin(alpha)) ** 2 + radarGeo.S_0[2] ** 2)
         # from sine theorem
         incidence = np.arcsin((re + radarGeo.S_0[2]) / r * np.sin(alpha))  ## found
+        # print(incidence * 180 / np.pi)
         C, daz = core_snr_spherical(radarGeo, aperture, incidence, wavelength, radarGeo.abs_v, radarGeo.S_0[2])
         return C
 
@@ -108,7 +109,7 @@ def core_SNR(radarGeo: RadarGeometry, aperture: UniformAperture, ground_range, w
         SNR_core = wavelength ** 3 * max_gain ** 2 * c_light * radarGeo.abs_v ** 2 * doppler_bandwidth / \
                    (32 * np.pi ** 3 * range_ ** 3 * k_boltz * sin_eta * w_range)
 
-    return SNR_core
+    return SNR_core.astype('float64')
 
 
 def theor_core_SNR(radarGeo: RadarGeometry, aperture: Aperture, ground_range, wavelength, c_light=299792458.0):
@@ -161,24 +162,25 @@ class RangeOptimizationProblem():
         :param swath_center: input of the function
         :return: error: output of the function
         """
-        near_range = swath_center - self.swath / 2
+        near_range = swath_center - self.swath / 2 ** 6
         far_range = swath_center + self.swath / 2
         ground_range = np.array([near_range, far_range])
         snr_core = core_SNR(self.radarGeo, self.aperture, ground_range, self.wavelength, self.c_light, ifsphere=True)
+        # print(near_range-far_range) this is ok
         error = snr_core[-1] - snr_core[0]
         return error
 
     def get_initial_swath_center(self):  # todo test
         # find broadside on ground
-        incidence = loking_angle_to_incidence(self.radarGeo.side_looking_angle, self.radarGeo.S_0[2])
+        incidence = looking_angle_to_incidence(self.radarGeo.side_looking_angle, self.radarGeo.S_0[2])
         r, rg = range_from_theta(180 / np.pi * incidence, self.radarGeo.S_0[2])
         return - float(rg)
 
     def optimize(self):
         opti_swath = root_scalar(self.error_function,
                                  method='secant',
-                                 x0=self.get_initial_swath_center() - 100,
-                                 x1=self.get_initial_swath_center() + 100)
+                                 x0=self.get_initial_swath_center() - 200,
+                                 x1=self.get_initial_swath_center() + 200)
         self.optiswath = opti_swath  # contains info about the optimization
         rmin = float(opti_swath.root) + self.swath / 2
         rmax = float(opti_swath.root) - self.swath / 2
@@ -186,6 +188,7 @@ class RangeOptimizationProblem():
         self.opti_rmax = rmax
         r_g = np.array([rmin, rmax])
         self.snr_core_edge = core_SNR(self.radarGeo, self.aperture, r_g, self.wavelength, ifsphere=True)
+        # print(self.snr_core_edge)
         return rmin, rmax, opti_swath
 
     def power_over_bandwidth(self, loss_noise_figure, antenna_temperature, NESZ_min):
@@ -255,8 +258,9 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
     for ii in tqdm(range(len(Ares))):
         print("Ares = ", Ares[ii])
         PoverB = Loss * T_ant / (NESZ_min[ii] * C_min)
-        B = opti.c_light * Ant_l / (4 * Ares[ii] * np.sin(
-            Look_angle * np.pi / 180))  # todo use here incidence angle instead of looking angle
+        incid = looking_angle_to_incidence(Look_angle * np.pi / 180, opti.radarGeo.S_0[2])
+        B = opti.c_light * Ant_l / (4 * Ares * np.sin(
+            incid))
         P = PoverB * B
         # %% plotting
         fig1, ax = plt.subplots(1)
@@ -273,17 +277,17 @@ def better_sweep(NESZ_min=10 ** (-1 / 10), Ares=3):
         ax.grid()
 
 
-def model_param(NESZ_min, Ares, Wg, La, looking_angle, L=10, Tant=300):
+def model_param(NESZ_min, Ares, Wg, La, looking_angle, L=10, T_ant=300):
     """
-
-    :param NESZ_min:
-    :param Ares:
-    :param Wg:
-    :param La:
-    :param looking_angle:
-    :param L:
-    :param Tant:
-    :return:
+    paper's design methodology
+    :param NESZ_min: minimum NESZ to obtain
+    :param Ares: resolution area
+    :param Wg: swath width [m]
+    :param La: antenna length vector Has to be a Numpy array
+    :param looking_angle: radar looking angle in degrees
+    :param L: losses in decibel, default 10dB
+    :param T_ant: antenna Temperature, default 300 k
+    :return: power, bandwidth (vectors, same length of La)
     """
 
     # sweeps over possible looking angles and antenna lengths, given a fixed antenna width
@@ -298,7 +302,7 @@ def model_param(NESZ_min, Ares, Wg, La, looking_angle, L=10, Tant=300):
     # create a radar geometry
     radGeo = RadarGeometry()
     #   looking angle deg
-    side_looking_angle = 30  # degrees
+    side_looking_angle = looking_angle  # degrees
     radGeo.set_rotation(side_looking_angle / 180 * np.pi, 0, 0)
     #   altitude
     altitude = 500e3  # m
@@ -309,47 +313,38 @@ def model_param(NESZ_min, Ares, Wg, La, looking_angle, L=10, Tant=300):
     # problem creation
     opti = RangeOptimizationProblem(radGeo, antenna, wavel)
 
-    # %% physical parameters sweep
-    looking_angle = np.linspace(30, 40, 2)
-    antenna_length = np.linspace(1, 4, 11)
+    # looking_angle = np.linspace(30, 40, 2)
+    antenna_length = La
     Look_angle, Ant_l = np.meshgrid(looking_angle, antenna_length)
-    C_min = np.zeros_like(Look_angle)
-    opti.swath = Wg  # km
+    C_min = np.zeros_like(Ant_l)
+    opti.swath = float(Wg)  # m
+    # print(opti.swath)
     # ACTUAL SWEEP
-    for cc in tqdm(range(len(looking_angle))):
-        # set looking angle
-        opti.radarGeo.set_rotation(looking_angle[cc] * np.pi / 180, 0, 0)
-        for rr in tqdm(range(len(antenna_length))):
-            # set antenna length
-            opti.aperture.set_length(antenna_length[rr])
-            # get minimum power over bandwidth
-            opti.optimize()
-            # get core snr
-            C_min[rr, cc] = np.average(opti.snr_core_edge)
+    # set looking angle
+    opti.radarGeo.set_rotation(looking_angle * np.pi / 180, 0, 0)
+    for rr in tqdm(range(len(antenna_length))):
+        # set antenna length
+        opti.aperture.set_length(antenna_length[rr])
+        # get minimum power over bandwidth
+        rmin, rmax, opt = opti.optimize()
+        # print(opt)
+        # print(rmin, rmax, rmax - rmin)
+        cc = core_SNR(opti.radarGeo, opti.aperture, np.array([rmin, rmax]), opti.wavelength, ifsphere=True)
+        # print('c=', 10 * np.log10(cc))
+        # get core snr
+        C_min[rr] = np.average(opti.snr_core_edge.astype('float64')).astype('float64')
 
     # %% system losses and powa normalization
     # params
     Loss = 10 ** (L / 10)  # F + Lsys
-    T_ant = 300
 
-    print("Ares = ", Ares)
+    # print("Ares = ", Ares)
     PoverB = Loss * T_ant / (NESZ_min * C_min)
+    incid = looking_angle_to_incidence(Look_angle * np.pi / 180, opti.radarGeo.S_0[2])
     B = opti.c_light * Ant_l / (4 * Ares * np.sin(
-        Look_angle * np.pi / 180))  # todo use here incidence angle instead of looking angle
+        incid))
     P = PoverB * B
-    # # %% plotting todo change this to a return
-    # fig1, ax = plt.subplots(1)
-    # plt.title(str("Ares = ") + str(Ares))
-    # ax2 = ax.twinx()
-    # for jj in range(len(looking_angle)):
-    #     ax.plot(antenna_length, P[:, jj], label='theta = ' + str(looking_angle[jj]))
-    #     ax2.plot(antenna_length, B[:, jj] / 1e6, '--', label='theta = ' + str(looking_angle[jj]))
-    # ax.legend()
-    # ax.set_xlabel('antenna length [m]')
-    # ax.set_ylabel('P_min [W]  _____')
-    # ax2.set_ylabel('B [MHz] - - - -')
-    # ax.grid()
-    # ax.grid()
+    return P, B
 
 
 if __name__ == '__main__':
@@ -357,4 +352,3 @@ if __name__ == '__main__':
     better_sweep()
     a = input()
     # tested sphere in coresnr
-    # todo use incidence angle in bandwidth calculations

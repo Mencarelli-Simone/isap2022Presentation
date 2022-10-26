@@ -408,7 +408,7 @@ def incidence_angle_to_looking_angle(incidence_angle, h=500e3, re=6371e3):
     return np.arccos(cos_theta_l)
 
 
-def loking_angle_to_incidence(looking_angle, h=500e3, re=6371e3):
+def looking_angle_to_incidence(looking_angle, h=500e3, re=6371e3):
     """
 
     :param looking_angle: looking angle on satellite
