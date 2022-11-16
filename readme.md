@@ -6,5 +6,6 @@
 
 # Scripts index
 trade off analysis: al_vs_p.ipynb
-normalized SNR taper: 
+plots in slide 20 and 22 in ISAP presentation
+
 
